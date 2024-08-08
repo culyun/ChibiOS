@@ -88,11 +88,15 @@ function main()
 
   # 1. Parse args
 
+  if [[ "$#" == '0' || "$1" == '-h' || "$1" == '--help' ]] ; then
+    print_help
+    exit 42
+  fi
+
   if [ $# -eq 2 ] ; then
 
     if [ "$1" != "rootpath" -o ! -d "$2" ] ; then
-      print_help
-      exit 42
+      exit 2
     fi
 
     shift 1
@@ -109,7 +113,7 @@ function main()
 
   if [ ! -r "$conffile" ] ; then
     log_error "Supplied MCU configuration directory / file \"$1\" does not exist.\n"
-    exit 2
+    exit 3
   fi
 
   # 3. Determine absolute conffile path
@@ -129,15 +133,32 @@ function main()
   # 5. Setup for processing
 
   mkdir -p "$SCRIPT_TMPDIR"
-  cd "$SCRIPT_TMPDIR"
 
-  log "Processing: \"$conffile\" ...\n"
+  log "Processing: \"$conffile\" ..."
 
-  grep -E -e "#define\s+[a-zA-Z0-9_()]*\s+[^\s]" <<< "$conffile" | sed -r 's/\#define\s+([a-zA-Z0-9_]*)(\([^)]*\))?\s+/\1=/g' > ./values.txt
+  grep -E -e "#define\s+[a-zA-Z0-9_()]*\s+[^\s]" <<< "$conffile" \
+    | sed -r 's/\#define\s+([a-zA-Z0-9_]*)(\([^)]*\))?\s+/\1=/g' > "${SCRIPT_TMPDIR}/values.txt"
+
+  TOOLS_PATH="${SCRIPT_PATH%/*}"
+
+cat <<-EOF > "${SCRIPT_TMPDIR}/conf.fmpp"
+
+outputRoot: ${SCRIPT_TMPDIR}
+dataRoot: ${SCRIPT_PATH}
+
+freemarkerLinks: {
+    lib: ${TOOLS_PATH}/ftl/libs
+}
+
+data : {
+  doc:properties (${SCRIPT_TMPDIR}/values.txt)
+}
+
+EOF
 
   set +e
 
-  fmpp -q -C "${SCRIPT_PATH}/conf.fmpp" -S "${SCRIPT_PATH}/../ftl/processors/conf/${target_ftl}"
+  fmpp -q -C "${SCRIPT_TMPDIR}/conf.fmpp" -S "${TOOLS_PATH}/ftl/processors/conf/${target_ftl}"
   fmpp_result=$?
 
   set -e
@@ -147,11 +168,9 @@ function main()
     exit 1
   fi
 
-  cp ./mcuconf.h "$conffile"
+  cp "${SCRIPT_TMPDIR}/mcuconf.h" "$conffile"
 
-  cd -
-
-  printf "Processing Successful: :-)\n"
+  log "Processing Successful: :-)"
 }
 
 ###############################################################################
